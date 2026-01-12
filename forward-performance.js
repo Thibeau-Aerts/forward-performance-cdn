@@ -19,6 +19,23 @@
     saveLine("[" + now() + "] " + line);
   }
 
+  function logPageInfo() {
+    try {
+      log(
+        "🌐 PAGE: " +
+          window.location.href +
+          " | path: " +
+          window.location.pathname +
+          " | referrer: " +
+          (document.referrer || "direct") +
+          " | title: " +
+          document.title
+      );
+    } catch {
+      log("🌐 PAGE: kon pagina-info niet ophalen");
+    }
+  }
+
   function loadWebVitals(callback) {
     if (window.webVitals) {
       callback();
@@ -77,6 +94,7 @@
 
   function init() {
     log("🚀 INIT Forward performance gestart");
+    logPageInfo();
     loadWebVitals(initVitals);
     logRegion();
   }
