@@ -1,23 +1,36 @@
 (function () {
   const API_ENDPOINT = "https://webhook.sinners.be/receive.php";
 
-  // Debug via ?fpdebug=1
+  /* =========================================================
+     DEBUG MODE
+     Zet ?fpdebug=1 in je URL om console logs te zien
+  ========================================================= */
   const DEBUG = new URLSearchParams(location.search).get("fpdebug") === "1";
   const dlog = (...a) => DEBUG && console.log("[ForwardPerformance]", ...a);
 
+  /* =========================================================
+     SESSIE IDENTITEIT (per tab)
+  ========================================================= */
   const SESSION_ID =
     (window.crypto && crypto.randomUUID && crypto.randomUUID()) ||
     "sess_" + Math.random().toString(16).slice(2);
 
-  let current = null;
-  let currentRouteId = 0;
-  let lastUrl = location.href;
+  let current = null;            // huidig payload object
+  let currentRouteId = 0;        // oplopend per route
+  let lastUrl = location.href;   // SPA referrer
 
-  /* -------------------- helpers -------------------- */
+  // caches om null te vermijden
+  let lastLCPElement = null;
+  let lastInteraction = null;
+
+  /* =========================================================
+     HELPERS
+  ========================================================= */
 
   const nowISO = () => new Date().toISOString();
   const safe = (n) => (typeof n === "number" && isFinite(n) ? n : null);
 
+  // Bouwt een korte maar bruikbare CSS selector
   function cssPath(el) {
     try {
       if (!el || !el.tagName) return null;
@@ -90,7 +103,32 @@
     };
   }
 
-  /* -------------------- web vitals -------------------- */
+  /* =========================================================
+     INTERACTION FALLBACK (voor INP details)
+     → vangt altijd laatste klik / key / pointer target
+  ========================================================= */
+
+  ["pointerdown", "click", "keydown"].forEach((type) => {
+    addEventListener(
+      type,
+      (e) => {
+        if (e.target && e.target.tagName) {
+          lastInteraction = {
+            tag: e.target.tagName,
+            text: (e.target.innerText || "").slice(0, 80),
+            selector: cssPath(e.target),
+            type,
+            ts: Date.now(),
+          };
+        }
+      },
+      { capture: true, passive: true }
+    );
+  });
+
+  /* =========================================================
+     WEB VITALS LOADER
+  ========================================================= */
 
   function loadWebVitals(cb) {
     if (window.webVitals) return cb();
@@ -108,9 +146,11 @@
 
     const { onCLS, onINP, onLCP, onFCP, onTTFB } = window.webVitals;
 
+    /* ---------- CLS ---------- */
     const clsStop = onCLS((m) => {
       if (!current || current._sent) return;
       current.metrics.CLS = Number(m.value.toFixed(4));
+
       try {
         m.entries?.forEach((e) =>
           e.sources?.forEach((s) => {
@@ -124,9 +164,11 @@
       } catch {}
     }, { reportAllChanges: true });
 
+    /* ---------- INP ---------- */
     const inpStop = onINP((m) => {
       if (!current || current._sent) return;
       current.metrics.INP = Math.round(m.value);
+
       try {
         const e = m.entries?.[0];
         if (e?.target) {
@@ -136,30 +178,39 @@
             selector: cssPath(e.target),
             type: e.name || null,
           };
+        } else if (!current.inp && lastInteraction) {
+          current.inp = lastInteraction;
         }
       } catch {}
     }, { reportAllChanges: true });
 
+    /* ---------- LCP ---------- */
     const lcpStop = onLCP((m) => {
       if (!current || current._sent) return;
       current.metrics.LCP = Math.round(m.value);
+
       try {
         const e = m.entries?.[m.entries.length - 1];
         if (e?.element) {
-          current.lcp = {
+          lastLCPElement = {
             tag: e.element.tagName,
             src: e.element.currentSrc || e.element.src || null,
             selector: cssPath(e.element),
           };
+          current.lcp = lastLCPElement;
+        } else if (!current.lcp && lastLCPElement) {
+          current.lcp = lastLCPElement;
         }
       } catch {}
     }, { reportAllChanges: true });
 
+    /* ---------- FCP ---------- */
     const fcpStop = onFCP((m) => {
       if (!current || current._sent) return;
       current.metrics.FCP = Math.round(m.value);
     });
 
+    /* ---------- TTFB ---------- */
     const ttfbStop = onTTFB((m) => {
       if (!current || current._sent) return;
       current.metrics.TTFB = Math.round(m.value);
@@ -174,7 +225,9 @@
     };
   }
 
-  /* -------------------- payload -------------------- */
+  /* =========================================================
+     PAYLOAD OBJECT
+  ========================================================= */
 
   function newPayload(kind) {
     currentRouteId++;
@@ -183,29 +236,46 @@
       routeId: currentRouteId,
       routeKind: kind,
       startedAt: nowISO(),
+
       path: location.pathname || "/",
       url: location.href,
       referrer: lastUrl || null,
+
       metrics: {},
       lcp: null,
       inp: null,
-      cls: null,
+      cls: [],
+
       device: getDeviceInfo(),
       network: getNetworkInfo(),
       page: getPageInfo(),
       timing: getNavTiming(),
+
       reason: null,
       endedAt: null,
+
       _sent: false,
       _clsSources: [],
     };
   }
 
+  /* =========================================================
+     SEND NAAR BACKEND
+  ========================================================= */
+
   function send(reason, extra) {
     if (!current || current._sent) return;
+
     current.reason = reason;
     current.endedAt = nowISO();
-    if (current._clsSources.length) current.cls = current._clsSources.slice(0, 8);
+
+    current.cls = current._clsSources.length
+      ? current._clsSources.slice(0, 8)
+      : [];
+
+    if (!current.lcp && lastLCPElement) current.lcp = lastLCPElement;
+    if (!current.inp && lastInteraction) current.inp = lastInteraction;
+
     if (extra) current.extra = extra;
     current._sent = true;
 
@@ -227,7 +297,9 @@
     dlog("sent", reason, clean.path);
   }
 
-  /* -------------------- routing -------------------- */
+  /* =========================================================
+     SPA ROUTE TRACKING
+  ========================================================= */
 
   function onRouteChange(trigger) {
     const newUrl = location.href;
@@ -261,7 +333,9 @@
     window.addEventListener("hashchange", () => onRouteChange("hashchange"));
   }
 
-  /* -------------------- start -------------------- */
+  /* =========================================================
+     START
+  ========================================================= */
 
   function start() {
     current = newPayload("load");
