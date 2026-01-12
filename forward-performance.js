@@ -9,11 +9,18 @@
     reason: null,
   };
 
+  function log(...args) {
+    console.log("[ForwardPerformance]", ...args);
+  }
+
+  log("Script geladen");
+
   /* =========================
      📊 WEB VITALS
   ========================= */
   function loadWebVitals(cb) {
     if (window.webVitals) return cb();
+
     const s = document.createElement("script");
     s.src = "https://unpkg.com/web-vitals@4/dist/web-vitals.iife.js";
     s.onload = cb;
@@ -21,7 +28,10 @@
   }
 
   function initVitals() {
-    if (!window.webVitals) return;
+    if (!window.webVitals) {
+      log("❌ web-vitals niet beschikbaar");
+      return;
+    }
 
     const { onCLS, onINP, onLCP, onFCP, onTTFB } = window.webVitals;
 
@@ -30,6 +40,8 @@
         value: metric.value,
         rating: metric.rating,
       };
+
+      log("📊", metric.name, metric.value, metric.rating);
     }
 
     onCLS(metricHandler);
@@ -37,6 +49,8 @@
     onLCP(metricHandler);
     onFCP(metricHandler);
     onTTFB(metricHandler);
+
+    log("Web Vitals listeners actief");
   }
 
   /* =========================
@@ -51,8 +65,12 @@
         continent: data.continent_code,
         inEU: data.in_eu,
       };
+
+      log("🌍 Location", payload.location);
     })
-    .catch(() => {});
+    .catch(() => {
+      log("❌ Location ophalen mislukt");
+    });
 
   /* =========================
      📡 SEND
@@ -60,6 +78,8 @@
   function send(reason) {
     payload.reason = reason;
     payload.timestamp = new Date().toISOString();
+
+    log("📡 POST naar API", payload);
 
     const body = JSON.stringify(payload);
 
@@ -71,7 +91,9 @@
         headers: { "Content-Type": "application/json" },
         body,
         keepalive: true,
-      }).catch(() => {});
+      }).catch(() => {
+        log("❌ POST mislukt");
+      });
     }
   }
 
