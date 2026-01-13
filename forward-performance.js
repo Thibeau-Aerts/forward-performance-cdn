@@ -96,36 +96,47 @@
   ========================================================= */
 
   function send(reason) {
-    if (!current || current._sent) return;
+  if (!current || current._sent) return;
 
-    current._sent = true;
+  current._sent = true;
 
-    const payload = {
-      url: current.url,
-      networkType: current.networkType,
-      browser: current.browser,
-      deviceType: current.deviceType,
-
-      CLS: current.CLS,
-      INP: current.INP,
-      LCP: current.LCP,
-      FCP: current.FCP,
-      TTFB: current.TTFB,
-    };
-
-    try {
-      navigator.sendBeacon(API_ENDPOINT, JSON.stringify(payload));
-    } catch {
-      fetch(API_ENDPOINT, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-        keepalive: true,
-      }).catch(() => {});
-    }
-
-    dlog("sent", payload);
+  // 👉 CLS: geen shifts = stabiele layout = 0
+  if (current.CLS === null) {
+    current.CLS = 0;
   }
+
+  // 👉 INP: geen interactie = niet gemeten
+  if (current.INP === null) {
+    current.INP = "not_measured";
+  }
+
+  const payload = {
+    url: current.url,
+    networkType: current.networkType,
+    browser: current.browser,
+    deviceType: current.deviceType,
+
+    CLS: current.CLS,
+    INP: current.INP,
+    LCP: current.LCP,
+    FCP: current.FCP,
+    TTFB: current.TTFB,
+  };
+
+  try {
+    navigator.sendBeacon(API_ENDPOINT, JSON.stringify(payload));
+  } catch {
+    fetch(API_ENDPOINT, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+      keepalive: true,
+    }).catch(() => {});
+  }
+
+  dlog("sent", payload);
+}
+
 
   /* =========================================================
      SPA ROUTES
