@@ -1,17 +1,29 @@
 (function () {
+  /* =========================================================
+     CONFIG
+  ========================================================= */
+
   const API_ENDPOINT = "https://webhook.sinners.be/receive.php";
+
+  // ✅ uit .env via Vite
+  const BASE_API_URL = import.meta.env.VITE_API_URL;
+  const SAMPLE_ENDPOINT = BASE_API_URL.replace(/\/$/, "") + "/sample-rate";
+
+  const SESSION_KEY = "__fp_active";
 
   const DEBUG = new URLSearchParams(location.search).get("fpdebug") === "1";
   const dlog = (...a) => DEBUG && console.log("[ForwardPerformance]", ...a);
 
   let current = null;
-  
+
   /* =========================================================
      HELPERS
   ========================================================= */
 
   const safe = (n) =>
     typeof n === "number" && isFinite(n) ? Math.round(n) : null;
+
+  const decide = (rate) => Math.random() * 100 < rate;
 
   function getNetworkType() {
     return navigator.connection?.effectiveType || null;
@@ -26,7 +38,6 @@
 
   function getBrowser() {
     const ua = navigator.userAgent;
-
     if (ua.includes("Edg/")) return "Edge";
     if (ua.includes("Chrome/")) return "Chrome";
     if (ua.includes("Safari/") && !ua.includes("Chrome")) return "Safari";
@@ -161,5 +172,40 @@
     dlog("started");
   }
 
-  start();
+  /* =========================================================
+     BOOT + SAMPLING
+  ========================================================= */
+
+  async function boot() {
+    const stored = sessionStorage.getItem(SESSION_KEY);
+    if (stored !== null) {
+      if (stored === "1") start();
+      return;
+    }
+
+    try {
+      const ctrl = new AbortController();
+      setTimeout(() => ctrl.abort(), 800);
+
+      const res = await fetch(SAMPLE_ENDPOINT, {
+        signal: ctrl.signal,
+        cache: "no-store",
+      });
+
+      const data = await res.json();
+      const rate = Number(data.sample_rate ?? data.value ?? 100);
+
+      const active = decide(rate);
+      sessionStorage.setItem(SESSION_KEY, active ? "1" : "0");
+
+      dlog("sample-rate", rate, "active:", active);
+
+      if (active) start();
+    } catch (e) {
+      dlog("sample-rate fetch failed", e);
+      sessionStorage.setItem(SESSION_KEY, "0");
+    }
+  }
+
+  boot();
 })();
