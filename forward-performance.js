@@ -5,9 +5,9 @@
 
   const API_ENDPOINT = "https://webhook.sinners.be/receive.php";
 
-  // ✅ uit .env via Vite
-  const BASE_API_URL = "http://localhost:3000";
-  const SAMPLE_ENDPOINT = BASE_API_URL.replace(/\/$/, "") + "/sample-rate";
+  // ❌ sampling API UIT
+  // const BASE_API_URL = "http://localhost:3000";
+  // const SAMPLE_ENDPOINT = BASE_API_URL.replace(/\/$/, "") + "/sample-rate";
 
   const SESSION_KEY = "__fp_active";
 
@@ -23,7 +23,8 @@
   const safe = (n) =>
     typeof n === "number" && isFinite(n) ? Math.round(n) : null;
 
-  const decide = (rate) => Math.random() * 100 < rate;
+  // ✅ altijd true (100%)
+  const decide = () => true;
 
   function getNetworkType() {
     return navigator.connection?.effectiveType || null;
@@ -173,38 +174,12 @@
   }
 
   /* =========================================================
-     BOOT + SAMPLING
+     BOOT (zonder API)
   ========================================================= */
 
-  async function boot() {
-    const stored = sessionStorage.getItem(SESSION_KEY);
-    if (stored !== null) {
-      if (stored === "1") start();
-      return;
-    }
-
-    try {
-      const ctrl = new AbortController();
-      setTimeout(() => ctrl.abort(), 800);
-
-      const res = await fetch(SAMPLE_ENDPOINT, {
-        signal: ctrl.signal,
-        cache: "no-store",
-      });
-
-      const data = await res.json();
-      const rate = Number(data.sample_rate ?? data.value ?? 100);
-
-      const active = decide(rate);
-      sessionStorage.setItem(SESSION_KEY, active ? "1" : "0");
-
-      dlog("sample-rate", rate, "active:", active);
-
-      if (active) start();
-    } catch (e) {
-      dlog("sample-rate fetch failed", e);
-      sessionStorage.setItem(SESSION_KEY, "0");
-    }
+  function boot() {
+    sessionStorage.setItem(SESSION_KEY, "1");
+    start();
   }
 
   boot();
