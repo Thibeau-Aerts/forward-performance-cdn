@@ -6,7 +6,7 @@
   const API_ENDPOINT = "https://webhook.sinners.be/receive.php";
 
   // ✅ uit .env via Vite
-  const BASE_API_URL = import.meta.env.VITE_API_URL;
+  const BASE_API_URL = "http://localhost:3000";
   const SAMPLE_ENDPOINT = BASE_API_URL.replace(/\/$/, "") + "/sample-rate";
 
   const SESSION_KEY = "__fp_active";
