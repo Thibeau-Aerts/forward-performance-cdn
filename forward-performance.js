@@ -4,52 +4,53 @@
   const DEBUG = new URLSearchParams(location.search).get("fpdebug") === "1";
   const dlog = (...a) => DEBUG && console.log("[ForwardPerformance]", ...a);
 
-  const SESSION_ID =
-    (window.crypto && crypto.randomUUID && crypto.randomUUID()) ||
-    "sess_" + Math.random().toString(16).slice(2);
-
   let current = null;
-  let routeId = 0;
-  let lastUrl = location.href;
-
+  
   /* =========================================================
      HELPERS
   ========================================================= */
 
-  const nowISO = () => new Date().toISOString();
-  const safe = (n) => (typeof n === "number" && isFinite(n) ? Math.round(n) : null);
+  const safe = (n) =>
+    typeof n === "number" && isFinite(n) ? Math.round(n) : null;
 
   function getNetworkType() {
     return navigator.connection?.effectiveType || null;
+  }
+
+  function getDeviceType() {
+    const ua = navigator.userAgent.toLowerCase();
+    if (/ipad|tablet/.test(ua)) return "tablet";
+    if (/mobi|android|iphone/.test(ua)) return "mobile";
+    return "desktop";
+  }
+
+  function getBrowser() {
+    const ua = navigator.userAgent;
+
+    if (ua.includes("Edg/")) return "Edge";
+    if (ua.includes("Chrome/")) return "Chrome";
+    if (ua.includes("Safari/") && !ua.includes("Chrome")) return "Safari";
+    if (ua.includes("Firefox/")) return "Firefox";
+    return "Other";
   }
 
   /* =========================================================
      PAYLOAD
   ========================================================= */
 
-  function newPayload(kind) {
-    routeId++;
-
+  function newPayload() {
     return {
-      sessionId: SESSION_ID,
-      routeId,
-      kind,
-      startedAt: nowISO(),
+      url: location.href,
+      networkType: getNetworkType(),
+      browser: getBrowser(),
+      deviceType: getDeviceType(),
 
-      page: {
-        path: location.pathname || "/",
-        url: location.href,
-        referrer: lastUrl || null,
-      },
+      CLS: null,
+      INP: null,
+      LCP: null,
+      FCP: null,
+      TTFB: null,
 
-      network: {
-        type: getNetworkType(), // bv: "4g", "3g", "slow-2g"
-      },
-
-      metrics: {},
-
-      endedAt: null,
-      reason: null,
       _sent: false,
     };
   }
@@ -71,11 +72,11 @@
 
     const { onCLS, onINP, onLCP, onFCP, onTTFB } = window.webVitals;
 
-    onCLS((m) => current && !current._sent && (current.metrics.CLS = +m.value.toFixed(4)));
-    onINP((m) => current && !current._sent && (current.metrics.INP = safe(m.value)));
-    onLCP((m) => current && !current._sent && (current.metrics.LCP = safe(m.value)));
-    onFCP((m) => current && !current._sent && (current.metrics.FCP = safe(m.value)));
-    onTTFB((m) => current && !current._sent && (current.metrics.TTFB = safe(m.value)));
+    onCLS((m) => current && !current._sent && (current.CLS = +m.value.toFixed(4)));
+    onINP((m) => current && !current._sent && (current.INP = safe(m.value)));
+    onLCP((m) => current && !current._sent && (current.LCP = safe(m.value)));
+    onFCP((m) => current && !current._sent && (current.FCP = safe(m.value)));
+    onTTFB((m) => current && !current._sent && (current.TTFB = safe(m.value)));
   }
 
   /* =========================================================
@@ -85,20 +86,19 @@
   function send(reason) {
     if (!current || current._sent) return;
 
-    current.reason = reason;
-    current.endedAt = nowISO();
     current._sent = true;
 
     const payload = {
-      sessionId: current.sessionId,
-      routeId: current.routeId,
-      kind: current.kind,
-      startedAt: current.startedAt,
-      endedAt: current.endedAt,
-      reason: current.reason,
-      page: current.page,
-      network: current.network,
-      metrics: current.metrics,
+      url: current.url,
+      networkType: current.networkType,
+      browser: current.browser,
+      deviceType: current.deviceType,
+
+      CLS: current.CLS,
+      INP: current.INP,
+      LCP: current.LCP,
+      FCP: current.FCP,
+      TTFB: current.TTFB,
     };
 
     try {
@@ -119,14 +119,9 @@
      SPA ROUTES
   ========================================================= */
 
-  function onRouteChange(trigger) {
-    const newUrl = location.href;
-    if (newUrl === lastUrl) return;
-
+  function onRouteChange() {
     send("route-change");
-
-    lastUrl = newUrl;
-    current = newPayload("spa");
+    current = newPayload();
     loadWebVitals(bindVitals);
   }
 
@@ -144,9 +139,9 @@
       window.dispatchEvent(new Event("fp:route"));
     };
 
-    window.addEventListener("fp:route", () => onRouteChange("history"));
-    window.addEventListener("popstate", () => onRouteChange("popstate"));
-    window.addEventListener("hashchange", () => onRouteChange("hashchange"));
+    window.addEventListener("fp:route", onRouteChange);
+    window.addEventListener("popstate", onRouteChange);
+    window.addEventListener("hashchange", onRouteChange);
   }
 
   /* =========================================================
@@ -154,13 +149,13 @@
   ========================================================= */
 
   function start() {
-    current = newPayload("load");
+    current = newPayload();
     loadWebVitals(bindVitals);
     hookHistory();
 
-    window.addEventListener("pagehide", () => send("pagehide"));
+    window.addEventListener("pagehide", send);
     document.addEventListener("visibilitychange", () => {
-      if (document.visibilityState === "hidden") send("hidden");
+      if (document.visibilityState === "hidden") send();
     });
 
     dlog("started");
